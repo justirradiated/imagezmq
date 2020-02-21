@@ -11,6 +11,7 @@ License: MIT, see LICENSE for more details.
 
 import zmq
 import numpy as np
+from zmq import ssh
 
 class ImageSender():
     """Opens a zmq socket and sends images
@@ -30,11 +31,17 @@ class ImageSender():
 
     Arguments:
       connect_to: the tcp address:port of the hub computer.
+      send_timeout: (optional) the number of seconds to wait for the socket to connect to the
+                            server before throwing a timeout exception
+      recv_timeout: (optional) the number of seconds to wait for the socket to read the response
+                            from the server before throwing a timeout exception
+      remote_host: (optional) the username and host IP to connect to
       REQ_REP: (optional) if True (the default), a REQ socket will be created
                           if False, a PUB socket will be created
+
     """
 
-    def __init__(self, connect_to='tcp://127.0.0.1:5555', REQ_REP = True):
+    def __init__(self, connect_to='tcp://127.0.0.1:5555', remote_host='user@server', send_timeout=0, recv_timeout=0, REQ_REP = True):
         """Initializes zmq socket for sending images to the hub.
 
         Expects an appropriate ZMQ socket at the connect_to tcp:port address:
@@ -43,23 +50,35 @@ class ImageSender():
 
         If REQ_REP = False, then a PUB socket is created. It must connect to
         a matching SUB socket on the ImageHub().
+
         """
 
         if REQ_REP == True:
              # REQ/REP mode, this is a blocking scenario
-             self.init_reqrep(connect_to)
+             self.init_reqrep(connect_to, remote_host, send_timeout, recv_timeout)
         else:
              #PUB/SUB mode, non-blocking scenario
-             self.init_pubsub(connect_to)
+             self.init_pubsub(connect_to, remote_host, send_timeout, recv_timeout)
 
-    def init_reqrep(self, address):
+    def init_reqrep(self, address, host, snd, rcv):
         """ Creates and inits a socket in REQ/REP mode
         """
 
         socketType = zmq.REQ
         self.zmq_context = SerializingContext()
         self.zmq_socket = self.zmq_context.socket(socketType)
-        self.zmq_socket.connect(address)
+
+        if snd > 0:
+            self.zmq_socket.setsockopt(zmq.SNDTIMEO, snd*1000)
+
+        if rcv > 0:
+            self.zmq_socket.setsockopt(zmq.RCVTIMEO, rcv * 1000)
+
+
+        if host == 'user@server':
+            self.zmq_socket.connect(address)
+        else:
+            ssh.tunnel_connection(self.zmq_socket, address, host)
 
         # Assign corresponding send methods for REQ/REP mode
         self.send_image = self.send_image_reqrep
